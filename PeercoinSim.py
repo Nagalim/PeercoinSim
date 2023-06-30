@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 
 dayyear=(365*33+8)/33
 secday=60*60*24
-NumSim=250
+NumSim=500
+Trials=50
 
 #Simulation Variables
 diff=20.43
@@ -80,8 +81,8 @@ def OutputWrapper(i, PRew, SRew):
 
 fig, ax = plt.subplots(figsize=(12, 6))
 
-results = [OutputWrapper(x,PercentageReward,StaticReward) for x in range(25)]
-results2 = [OutputWrapper(x,0.03,1.34) for x in range(25)]
+results = [OutputWrapper(x,PercentageReward,StaticReward) for x in range(Trials)]
+results2 = [OutputWrapper(x,0.03,1.34) for x in range(Trials)]
 
 for result in results:
     ax.scatter(OutArray, result, c="#AAB")
