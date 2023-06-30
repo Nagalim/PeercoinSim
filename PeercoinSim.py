@@ -1,13 +1,17 @@
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 
 dayyear=(365*33+8)/33
 secday=60*60*24
-NumSim=100
+NumSim=250
 
 #Simulation Variables
-#StaticReward=1.34
-MaxSimDays=365*8
+diff=20.43
+PercentageReward=0
+StaticReward=1.34*4
+MaxSimDays=365*10
+calcMints=False
 geometric=True
 
 # Precomputed probability for 31-90 days to be adjusted by value/diff
@@ -17,29 +21,29 @@ probsecs = [2**224 * (x+1) / (2**256) for x in range(60)]
 def RandomDaysToMint(outValue,difficulty,rng):
 
     adj = outValue / difficulty
-    probs = [1 - (1 - probsecs[x]*adj)**secday for x in range(60)]
-
     DaysToMint=31
+    probday=1
+
     for x in range(60):
 
-        rnd = rng.random()
-        probday = probs[x]
+        rnd = random.random()
+        probday = 1 - (1 - probsecs[x]*adj)**secday
 
-        if rnd<probday: break
+        if rnd<probday:
+            return DaysToMint
 
         DaysToMint+=1
 
-    else: DaysToMint=DaysToMint+rng.geometric(probs[59])
-
-    return DaysToMint
+    return DaysToMint+rng.geometric(probday)
 
 rng = np.random.default_rng()
 
 #Reward Wrapper
-def MintRewards(outValue, difficulty, static):
+def MintRewards(outValue, difficulty, PRew, SRew):
 
     totalreward = 1 if geometric else 0
     totaldays = 0
+    mints = 0
 
     for _ in range(NumSim):
 
@@ -47,7 +51,8 @@ def MintRewards(outValue, difficulty, static):
 
         #Coinage Limit
         if MintDays < MaxSimDays:
-            reward=0.03*outValue*min(dayyear, MintDays)/dayyear + static
+            mints += 1
+            reward=PRew*outValue*min(365, MintDays)/dayyear + SRew
             if geometric:
                 totalreward *= 1+(reward/outValue)
             else:
@@ -57,47 +62,42 @@ def MintRewards(outValue, difficulty, static):
         # maximum wait time
         totaldays += min(MintDays, MaxSimDays)
 
+    if calcMints:
+        return mints/totaldays/outValue*365
+
     # Return annualised percentage
     if geometric:
         return (totalreward**(dayyear/totaldays) - 1)*100
     rewardperday = totalreward/totaldays
     return rewardperday/outValue*36500
 
-OutArray=[2**(x/4) for x in range(50)]
-#OutArray=[10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200]
+OutArray=[2**(x/4) for x in range(35)]
 print(OutArray)
 
-def OutputWrapper(diff,static):
-    RewardArray=[MintRewards(x,diff,static) for x in OutArray]
-    #PlotArray=[OutArray,RewardArray]
-    return RewardArray
+def OutputWrapper(i, PRew, SRew):
+    print(i)
+    return [MintRewards(x, diff, PRew, SRew) for x in OutArray]
 
-def DifficultyWrapper(diff,static):
-    NumCurves=20
-    optimal=0
-    for w in range(NumCurves):
-        RewardArray=OutputWrapper(diff,static)
-        #ax.scatter(RandPlot[0],RandPlot[1])
-        #print(w)
-        optimal+=OutArray[RewardArray.index(max(RewardArray))]/NumCurves
-    print(diff)
-    print(static)
-    print(optimal)
-    return optimal
+fig, ax = plt.subplots(figsize=(12, 6))
 
-fig, ax = plt.subplots()
-DiffArray=[8,12,16,20,24,28,32]
-#DiffArray=[10,20,30]
-#StaticArray=[0,0.5,1,1.34,1.5,2,3,4,5,10,20,100]
-StaticArray=[0.5,1,1.34,2,3]
-for u in StaticArray:
-    OptimalArray=[DifficultyWrapper(v,u) for v in DiffArray]
-    ax.scatter(DiffArray,OptimalArray)
-ax.set_xlabel("Difficulty (unitless)")
-ax.set_ylabel("Optimal Output (PPC)")
-ax.legend(StaticArray,title="Static Reward (PPC)")
+results = [OutputWrapper(x,PercentageReward,StaticReward) for x in range(25)]
+results2 = [OutputWrapper(x,0.03,1.34) for x in range(25)]
+
+for result in results:
+    ax.scatter(OutArray, result, c="#AAB")
+for result2 in results2:
+    ax.scatter(OutArray, result2, c="#AAB")
+
+average = [sum(l) / len(l) for l in list(zip(*results))]
+ax.plot(OutArray, average,label ='Custom')
+
+average2 = [sum(m) / len(m) for m in list(zip(*results2))]
+ax.plot(OutArray, average2,label ='Current')
+
+ax.set_xlabel("UTXO Size")
+ax.set_ylabel("Mints / Coin / Yr" if calcMints else "% Reward / Yr")
 #plt.xscale("log")
-plt.grid()
+plt.legend()
+plt.grid(which="both")
 plt.show()
-
 
