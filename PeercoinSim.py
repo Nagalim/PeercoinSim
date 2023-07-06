@@ -10,43 +10,55 @@ secday=60*60*24
 
 ## Statistical Parameters
 # Simulated proof of stake difficulty
-PoSDifficulty = [20]
+#PoSDifficulty = [2**((x+12)/4) for x in range(9)]
+PoSDifficulty = [x/2+5 for x in range(100)]
 # Presumed total length of the minting interval
+#MaxSimDays = [dayyear*x/6+90 for x in range(10)]
 MaxSimDays = [dayyear*4]
 # Use of compounding interest formula
+#geometric=[True,False]
 geometric=[True]
 # Number of days a UTXO must wait before its maturation period begins
+#NoMintDays = [0,15,30,45,60]
 NoMintDays = [30]
 # Number of days for the maturation period after the probability ramp begins
+#RampUpDays = [1,30,60,90,120]
 RampUpDays = [60]
 # NoMintDays+RampUpDays = Total length of maturation period
 
 ## Economic Parameters
 # Coinage reward as a percentage.  This is the %/coin/year interest for the coinage-based portion of the reward.
+#CoinageReward = [0,0.01,0.02,0.03,0.04,0.05,0.06]
 CoinageReward = [0.03]
 # Static reward as a number of coins.
 # We maybe should change this to a percentage of the supply, but that would require an additional input
+#StaticReward = [0,0.67,1.34,2.68,5.36]
 StaticReward = [1.34]
 # Maximum number of days the coinage reward will build for a UTXO
+#MaxCoinageDays = [0.25*dayyear,0.5*dayyear,dayyear,2*dayyear,4*dayyear]
 MaxCoinageDays = [dayyear]
 
 ## Resolution Parameters
 # Repititions that are not reported, only the average is advanced
-NumSim=[250]
+NumSim=[1000]
 # Repititions that are reported up to the top level
-Trials=[50]
+Trials=[100]
 # Total number of averaged simulations = NumSim*Trials
 
 ### The following parameters change the overall form of the plot
 
 # Array of unspent transaction outputs.
 # It is good to populate a log plot with exponential points like this:
-# UTXO=[2**(x/4) for x in range(35)]
-UTXO=[2**(x/4) for x in range(45)]
+#UTXO=[2**(x/4) for x in range(45)]
+UTXO=[10*x+10 for x in range(45)]
 
 ## Method Parameters
 # Show mint probabilities instead of rewards (not an array)
 calcMints=False
+# Plot optimum output size and maximum reward
+Optimize=True
+# Optimize as a function of:
+OptimizeVersus=PoSDifficulty
 
 ## Plot Parameters
 # linear/log (not an array)
@@ -147,7 +159,7 @@ def InputWrapper(i, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS):
     print(i)
     # Precompute probabilities to save time lower down
     # Precomputed probability for 31-90 days (or whatever ramp up) to be adjusted by value/diff
-    probsecs = [2**224 * (x+1) / (2**256) for x in range(RUD)]
+    probsecs = [60/(RUD) *2**224 * (x+1) / (2**256) for x in range(RUD)]
     # Simulate a full trial including all UTXO sizes
     return [MinterSimulation(probsecs, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS, Outp) for Outp in UTXO]
 
@@ -159,32 +171,63 @@ def InputWrapper(i, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS):
 ### Plotting
 # Initialize
 fig, ax = plt.subplots(figsize=(12, 6))
+MaximumAverage=[]
+OptimumUTXO=[]
 # Add to the plot for every combination of parameters 
-plotnumber=1
+ParameterNumber=1
 for diff in PoSDifficulty:
     for MSD in MaxSimDays:
         for geo in geometric:
             for NMD in NoMintDays:
                 for RUD in RampUpDays:
-                    for Crew in CoinageReward:
-                        for Srew in StaticReward:
+                    for CRew in CoinageReward:
+                        for SRew in StaticReward:
                             for MCD in MaxCoinageDays:
                                 for NS in NumSim:
                                     for Trl in Trials:
+                                        print("Parameter number {}".format(ParameterNumber))
                                         # Make a random set of trials
-                                        SetofTrials = [InputWrapper(x, diff, MSD, geo, NMD, RUD, Crew, Srew, MCD, NS) for x in range(Trl)]
+                                        SetofTrials = [InputWrapper(x, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS) for x in range(Trl)]
                                         # Average the trials
                                         AverageTrial = [sum(l) / len(l) for l in list(zip(*SetofTrials))]
                                         # Plot (and/or scatter plot) the trials
-                                        ax.plot(UTXO, AverageTrial, label =plotnumber)
-                                        #ax.scatter(UTXO, SetofTrials, c="#AAB")
-                                        plotnumber+=1
+                                        if Optimize == True:
+                                            MaximumAverage.append(max(AverageTrial))
+                                            OptimumUTXO.append(UTXO[np.array(AverageTrial).argmax()])
+                                        else:
+                                            ax.plot(UTXO, AverageTrial, label ="100CRew= {}".format(round(CRew*100,0)))
+                                            #ax.scatter(UTXO, SetofTrials, c="#AAB")
+                                        ParameterNumber+=1
+                                        
+#round(MSD,-1)
 
 #Plot details
-ax.set_xlabel("UTXO Size")
-ax.set_ylabel("Mints / Coin / Yr" if calcMints else "% Reward / Yr")
-plt.xscale(ScaleOfX)
-plt.legend(title="Plot Number")
-plt.grid(which="both")
-plt.show()
-
+if Optimize == True:
+    fig, ay = plt.subplots(figsize=(12, 6))
+    #ax.plot(OptimizeVersus, np.exp(np.reciprocal(MaximumAverage)))
+    ax.plot(OptimizeVersus, MaximumAverage)
+    #ax.plot(OptimizeVersus, 2*np.exp(0.5*np.reciprocal(MaximumAverage)))
+    ay.plot(OptimizeVersus, OptimumUTXO)
+    ax.set_xlabel("Difficulty")
+    ay.set_xlabel("Difficulty")
+    ax.set_ylabel("Maximum Mints / Coin / Yr" if calcMints else "Maximum Reward (% / Yr)")
+    ay.set_ylabel("Optimum Output for Minting (PPC)" if calcMints else "Optimum Output for Rewards (PPC)")
+    MaxAvgFit = np.polyfit(OptimizeVersus, np.reciprocal(MaximumAverage), 4)
+    MaxAvgEq = np.poly1d(MaxAvgFit)
+    ax.plot(OptimizeVersus, np.reciprocal(MaxAvgEq(OptimizeVersus)),label="y=1/(%.2Ex^4+%.2Ex^3+%.2Ex^2+%.2Ex+%.2E)"%(MaxAvgFit[0],MaxAvgFit[1],MaxAvgFit[2],MaxAvgFit[3],MaxAvgFit[4]))
+    ax.legend(title="Reciprocal 4th Order Equation")
+    OutputFit = np.polyfit(OptimizeVersus, OptimumUTXO, 1)
+    OutputEq = np.poly1d(OutputFit) 
+    ay.plot(OptimizeVersus, OutputEq(OptimizeVersus),label="y=%.3fx+%.3f"%(OutputFit[0],OutputFit[1]))
+    #plt.xscale(ScaleOfX)
+    ay.legend(title="Linear Equation")
+    ax.grid(which="both")
+    ay.grid(which="both")
+    plt.show()
+else:
+    ax.set_xlabel("UTXO Size")
+    ax.set_ylabel("Mints / Coin / Yr" if calcMints else "% Reward / Yr")
+    plt.xscale(ScaleOfX)
+    plt.legend(title="Coinage Reward (%)")
+    plt.grid(which="both")
+    plt.show()
