@@ -6,12 +6,13 @@ import matplotlib.pyplot as plt
 dayyear=(365*33+8)/33
 secday=60*60*24
 
-### Start of Parameters as Arrays.  Every combination of given parameters will be plotted
+### Start of Parameters as Arrays.  Every combination of given parameters will be plotted
 
 ## Statistical Parameters
 # Simulated proof of stake difficulty
 #PoSDifficulty = [2**((x+12)/4) for x in range(9)]
-PoSDifficulty = [x/2+5 for x in range(100)]
+PoSDifficulty = [x+15 for x in range(10)]
+#PoSDifficulty = [20]
 # Presumed total length of the minting interval
 #MaxSimDays = [dayyear*x/6+90 for x in range(10)]
 MaxSimDays = [dayyear*4]
@@ -27,12 +28,13 @@ RampUpDays = [60]
 # NoMintDays+RampUpDays = Total length of maturation period
 
 ## Economic Parameters
-# Coinage reward as a percentage.  This is the %/coin/year interest for the coinage-based portion of the reward.
+# Coinage reward as a percentage.  This is the %/coin/year interest for the coinage-based portion of the reward.
 #CoinageReward = [0,0.01,0.02,0.03,0.04,0.05,0.06]
 CoinageReward = [0.03]
 # Static reward as a number of coins.
 # We maybe should change this to a percentage of the supply, but that would require an additional input
 #StaticReward = [0,0.67,1.34,2.68,5.36]
+#StaticReward = [x/10+1.3 for x in range(7)]
 StaticReward = [1.34]
 # Maximum number of days the coinage reward will build for a UTXO
 #MaxCoinageDays = [0.25*dayyear,0.5*dayyear,dayyear,2*dayyear,4*dayyear]
@@ -40,7 +42,7 @@ MaxCoinageDays = [dayyear]
 
 ## Resolution Parameters
 # Repititions that are not reported, only the average is advanced
-NumSim=[1000]
+NumSim=[10000]
 # Repititions that are reported up to the top level
 Trials=[100]
 # Total number of averaged simulations = NumSim*Trials
@@ -50,7 +52,7 @@ Trials=[100]
 # Array of unspent transaction outputs.
 # It is good to populate a log plot with exponential points like this:
 #UTXO=[2**(x/4) for x in range(45)]
-UTXO=[10*x+10 for x in range(45)]
+UTXO=[2*x+70 for x in range(40)]
 
 ## Method Parameters
 # Show mint probabilities instead of rewards (not an array)
@@ -59,6 +61,8 @@ calcMints=False
 Optimize=True
 # Optimize as a function of:
 OptimizeVersus=PoSDifficulty
+# If Daily Prob is very small, approximate the ramp up
+SmallDailyProb = 0.001
 
 ## Plot Parameters
 # linear/log (not an array)
@@ -82,23 +86,29 @@ def RandomDaysToMint(probsecs, diff, NMD, RUD, Outp):
     # Adjust probability by UTXO and difficulty
     adj = Outp / diff
 
-    #Initialize.  NMD+1 is the first day you could possibly mint
+    #Initialize.  NMD+1 is the first day you could possibly mint
     DaysToMint=NMD+1
     probday=1
+    estprobday = probsecs[RUD-1]*adj*secday
+    #print("Out:{},estprobday:{}".format(Outp,estprobday))
+    if estprobday>smalldailyprob:
 
-    # Maturation period
-    for x in range(RUD):
+        # Maturation period
+        for x in range(RUD):
 
-        # Random number
-        rnd = rng.random()
-        # Calculate required probability to mint
-        probday = 1 - (1 - probsecs[x]*adj)**secday
+            # Random number
+            rnd = rng.random()
+            # Calculate required probability to mint
+            probday = 1 - (1 - probsecs[x]*adj)**secday
+            # Did you find a block?
+            if rnd<probday:
+                return DaysToMint
+            # Apparently not
+            DaysToMint+=1
 
-        # Did you find a block?
-        if rnd<probday:
-            return DaysToMint
-        # Apparently not
-        DaysToMint+=1
+    else:
+        DaysToMint = NMD+RUD+1
+        probay = estprobday
 
     # Will return either the length of maturation,
     # or the full maturation plus the randomly generated number of days to mint
@@ -122,7 +132,6 @@ def MinterSimulation(probsecs, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS, Ou
 
         # Grab how many days it takes simulation to mint
         MintDays=RandomDaysToMint(probsecs, diff, NMD, RUD, Outp)
-
         # If they mint before they stop minting
         if MintDays < MSD:
             mints += 1
@@ -173,7 +182,7 @@ def InputWrapper(i, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS):
 fig, ax = plt.subplots(figsize=(12, 6))
 MaximumAverage=[]
 OptimumUTXO=[]
-# Add to the plot for every combination of parameters 
+# Add to the plot for every combination of parameters
 ParameterNumber=1
 for diff in PoSDifficulty:
     for MSD in MaxSimDays:
@@ -198,29 +207,27 @@ for diff in PoSDifficulty:
                                             ax.plot(UTXO, AverageTrial, label ="100CRew= {}".format(round(CRew*100,0)))
                                             #ax.scatter(UTXO, SetofTrials, c="#AAB")
                                         ParameterNumber+=1
-                                        
+
 #round(MSD,-1)
 
 #Plot details
 if Optimize == True:
     fig, ay = plt.subplots(figsize=(12, 6))
-    #ax.plot(OptimizeVersus, np.exp(np.reciprocal(MaximumAverage)))
     ax.plot(OptimizeVersus, MaximumAverage)
-    #ax.plot(OptimizeVersus, 2*np.exp(0.5*np.reciprocal(MaximumAverage)))
     ay.plot(OptimizeVersus, OptimumUTXO)
     ax.set_xlabel("Difficulty")
     ay.set_xlabel("Difficulty")
     ax.set_ylabel("Maximum Mints / Coin / Yr" if calcMints else "Maximum Reward (% / Yr)")
     ay.set_ylabel("Optimum Output for Minting (PPC)" if calcMints else "Optimum Output for Rewards (PPC)")
-    MaxAvgFit = np.polyfit(OptimizeVersus, np.reciprocal(MaximumAverage), 4)
+    MaxAvgFit = np.polyfit(OptimizeVersus, MaximumAverage, 1)
     MaxAvgEq = np.poly1d(MaxAvgFit)
-    ax.plot(OptimizeVersus, np.reciprocal(MaxAvgEq(OptimizeVersus)),label="y=1/(%.2Ex^4+%.2Ex^3+%.2Ex^2+%.2Ex+%.2E)"%(MaxAvgFit[0],MaxAvgFit[1],MaxAvgFit[2],MaxAvgFit[3],MaxAvgFit[4]))
-    ax.legend(title="Reciprocal 4th Order Equation")
+    ax.plot(OptimizeVersus, MaxAvgEq(OptimizeVersus),label="y=%.2fx+%.2f)"%(MaxAvgFit[0],MaxAvgFit[1]))
+    ax.legend(title="Linear")
     OutputFit = np.polyfit(OptimizeVersus, OptimumUTXO, 1)
-    OutputEq = np.poly1d(OutputFit) 
-    ay.plot(OptimizeVersus, OutputEq(OptimizeVersus),label="y=%.3fx+%.3f"%(OutputFit[0],OutputFit[1]))
+    OutputEq = np.poly1d(OutputFit)
+    ay.plot(OptimizeVersus, OutputEq(OptimizeVersus),label="y=%.1fx+%.1f"%(OutputFit[0],OutputFit[1]))
     #plt.xscale(ScaleOfX)
-    ay.legend(title="Linear Equation")
+    ay.legend(title="Linear")
     ax.grid(which="both")
     ay.grid(which="both")
     plt.show()
