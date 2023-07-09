@@ -91,7 +91,7 @@ def RandomDaysToMint(probsecs, diff, NMD, RUD, Outp):
     probday=1
     estprobday = probsecs[RUD-1]*adj*secday
     #print("Out:{},estprobday:{}".format(Outp,estprobday))
-    if estprobday>smalldailyprob:
+    if estprobday>SmallDailyProb:
 
         # Maturation period
         for x in range(RUD):
