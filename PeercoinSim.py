@@ -1,18 +1,21 @@
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+import peakutils as pk
+from scipy.optimize import curve_fit
+import scipy.optimize
 
 # Time-based Constants.
 dayyear=(365*33+8)/33
 secday=60*60*24
 
-### Start of Parameters as Arrays.  Every combination of given parameters will be plotted
+### Start of Parameters as Arrays.  Every combination of given parameters will be plotted
 
 ## Statistical Parameters
 # Simulated proof of stake difficulty
 #PoSDifficulty = [2**((x+12)/4) for x in range(9)]
-PoSDifficulty = [x+15 for x in range(10)]
-#PoSDifficulty = [20]
+#PoSDifficulty = [3*x+1 for x in range(15)]
+PoSDifficulty = [20]
 # Presumed total length of the minting interval
 #MaxSimDays = [dayyear*x/6+90 for x in range(10)]
 MaxSimDays = [dayyear*4]
@@ -28,7 +31,7 @@ RampUpDays = [60]
 # NoMintDays+RampUpDays = Total length of maturation period
 
 ## Economic Parameters
-# Coinage reward as a percentage.  This is the %/coin/year interest for the coinage-based portion of the reward.
+# Coinage reward as a percentage.  This is the %/coin/year interest for the coinage-based portion of the reward.
 #CoinageReward = [0,0.01,0.02,0.03,0.04,0.05,0.06]
 CoinageReward = [0.03]
 # Static reward as a number of coins.
@@ -42,26 +45,29 @@ MaxCoinageDays = [dayyear]
 
 ## Resolution Parameters
 # Repititions that are not reported, only the average is advanced
-NumSim=[10000]
+NumSim=[2500]
 # Repititions that are reported up to the top level
-Trials=[100]
+Trials=[10]
 # Total number of averaged simulations = NumSim*Trials
 
 ### The following parameters change the overall form of the plot
 
 # Array of unspent transaction outputs.
 # It is good to populate a log plot with exponential points like this:
-#UTXO=[2**(x/4) for x in range(45)]
-UTXO=[2*x+70 for x in range(40)]
+UTXO=[2**(x/4)*10 for x in range(40)]
+#UTXO=[2**(x/2)*10 for x in range(20)]
+#UTXO=[25*x+1 for x in range(40)]
 
 ## Method Parameters
 # Show mint probabilities instead of rewards (not an array)
 calcMints=False
 # Plot optimum output size and maximum reward
-Optimize=True
+Optimize=False
 # Optimize as a function of:
 OptimizeVersus=PoSDifficulty
-# If Daily Prob is very small, approximate the ramp up
+# SmallDailyProb is a number from 0 (precise) to 1 (estimate).
+# If Daily Prob is very small, approximate the ramp up.
+# What does x<<1 mean to you?  x=0.01?
 SmallDailyProb = 0.001
 
 ## Plot Parameters
@@ -86,7 +92,7 @@ def RandomDaysToMint(probsecs, diff, NMD, RUD, Outp):
     # Adjust probability by UTXO and difficulty
     adj = Outp / diff
 
-    #Initialize.  NMD+1 is the first day you could possibly mint
+    #Initialize.  NMD+1 is the first day you could possibly mint
     DaysToMint=NMD+1
     probday=1
     estprobday = probsecs[RUD-1]*adj*secday
@@ -105,11 +111,12 @@ def RandomDaysToMint(probsecs, diff, NMD, RUD, Outp):
                 return DaysToMint
             # Apparently not
             DaysToMint+=1
-
     else:
-        DaysToMint = NMD+RUD+1
-        probay = estprobday
+        DaysToMint += RUD
+        probday=estprobday
 
+    #print(probday)
+    #print(DaysToMint)
     # Will return either the length of maturation,
     # or the full maturation plus the randomly generated number of days to mint
     return DaysToMint+rng.geometric(probday)
@@ -146,7 +153,7 @@ def MinterSimulation(probsecs, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS, Ou
         # Add to total days the amount of time waited on this mint up to the
         # maximum wait time
         totaldays += min(MintDays, MSD)
-
+    
     # If showing probabilites, return total number of mints per output per year
     if calcMints:
         return mints/totaldays/Outp*dayyear
@@ -172,6 +179,15 @@ def InputWrapper(i, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS):
     # Simulate a full trial including all UTXO sizes
     return [MinterSimulation(probsecs, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS, Outp) for Outp in UTXO]
 
+def poly(x, a, b, c, d, e, f, g):
+    return a*x**4+b*x**3+c*x**2+d*x+e+f*x**5+g*x**6
+
+PolyGuess = np.array([0.27,-2.5,11.6,-24.8,23,-0.0135,0.00025])
+    
+def BalancedExp(x, a, b, c, d, e, f, g):
+    return (a/np.exp(b*x**(-d))+f/(np.exp(-c*x**(-e))+g))**(-1)-g
+
+InitGuess = np.array([0.25,65,6.2,0.73,0.26,0.056,0.14])
 
 #[{diff~PoSDifficulty},{MSD~MaxSimDays},{geo~geometric},{NMD~NoMintDays},{RUD~RampUpDays},
 #,{Crew~CoinageReward},{Srew~StaticReward},{MCD~MaxCoinageDays},
@@ -182,6 +198,7 @@ def InputWrapper(i, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS):
 fig, ax = plt.subplots(figsize=(12, 6))
 MaximumAverage=[]
 OptimumUTXO=[]
+MaxUTXO=[]
 # Add to the plot for every combination of parameters
 ParameterNumber=1
 for diff in PoSDifficulty:
@@ -199,42 +216,66 @@ for diff in PoSDifficulty:
                                         SetofTrials = [InputWrapper(x, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS) for x in range(Trl)]
                                         # Average the trials
                                         AverageTrial = [sum(l) / len(l) for l in list(zip(*SetofTrials))]
-                                        # Plot (and/or scatter plot) the trials
-                                        if Optimize == True:
-                                            MaximumAverage.append(max(AverageTrial))
-                                            OptimumUTXO.append(UTXO[np.array(AverageTrial).argmax()])
-                                        else:
-                                            ax.plot(UTXO, AverageTrial, label ="100CRew= {}".format(round(CRew*100,0)))
-                                            #ax.scatter(UTXO, SetofTrials, c="#AAB")
+                                        # Some Peak Finding Stuff
+                                        MaxAvg=max(AverageTrial)
+                                        MaximumAverage.append(MaxAvg)
+                                        MaxOutp=UTXO[np.array(AverageTrial).argmax()]
+                                        MaxUTXO.append(MaxOutp)
+                                        #ApproxPeakIndx = pk.indexes(np.array(AverageTrial), thres=0.3, min_dist=1000)
+                                        #GaussPeaks = np.exp(pk.interpolate(np.array(np.log(UTXO)), np.array(AverageTrial), ind=ApproxPeakIndx))
+                                        #OptimumUTXO.append(GaussPeaks[0])
+                                        # Plot individual trials and fits
+                                        if Optimize == False:
+                                            #ax.plot(UTXO, AverageTrial, label ="SRew={}".format(round(SRew,2)))
+                                            ax.plot(UTXO, AverageTrial)
+                                            #ax.scatter([GaussPeaks[0]], [MaxAvg],c="#458B00", label="Gauss")
+                                            ax.scatter([MaxOutp], [MaxAvg],c="#000",label="Max")
+                                            Balancedparams, Balancedcurve = curve_fit(BalancedExp, UTXO, AverageTrial,InitGuess)
+                                            exppolyparams, exppolycurve = curve_fit(poly, np.log(UTXO), AverageTrial,InitGuess)
+                                            print("Balancedparams")
+                                            print(Balancedparams)
+                                            print("exppolyparams")
+                                            print(exppolyparams)
+                                            #print("zero")
+                                            #print(BalancedExp(0, *Balancedparams))
+                                            plt.plot(UTXO, BalancedExp(np.array(UTXO), *Balancedparams))
+                                            plt.plot(UTXO, poly(np.array(np.log(UTXO)), *exppolyparams))
+                                            BalancedOpt = scipy.optimize.fmin(lambda x: -BalancedExp(x,*Balancedparams), 100)
+                                            ax.scatter(BalancedOpt, [BalancedExp(BalancedOpt[0],*Balancedparams)],c="#A80000",marker='^',label="Fit")
+                                            
                                         ParameterNumber+=1
 
-#round(MSD,-1)
+
+
 
 #Plot details
 if Optimize == True:
     fig, ay = plt.subplots(figsize=(12, 6))
-    ax.plot(OptimizeVersus, MaximumAverage)
+    #ax.plot(OptimizeVersus, MaximumAverage)
     ay.plot(OptimizeVersus, OptimumUTXO)
-    ax.set_xlabel("Difficulty")
+    #ax.set_xlabel("Difficulty")
     ay.set_xlabel("Difficulty")
-    ax.set_ylabel("Maximum Mints / Coin / Yr" if calcMints else "Maximum Reward (% / Yr)")
+    #ax.set_ylabel("Maximum Mints / Coin / Yr" if calcMints else "Maximum Reward (% / Yr)")
     ay.set_ylabel("Optimum Output for Minting (PPC)" if calcMints else "Optimum Output for Rewards (PPC)")
-    MaxAvgFit = np.polyfit(OptimizeVersus, MaximumAverage, 1)
-    MaxAvgEq = np.poly1d(MaxAvgFit)
-    ax.plot(OptimizeVersus, MaxAvgEq(OptimizeVersus),label="y=%.2fx+%.2f)"%(MaxAvgFit[0],MaxAvgFit[1]))
-    ax.legend(title="Linear")
-    OutputFit = np.polyfit(OptimizeVersus, OptimumUTXO, 1)
+    #MaxAvgFit = np.polyfit(OptimizeVersus, MaximumAverage, 1)
+    #MaxAvgEq = np.poly1d(MaxAvgFit)
+    #ax.plot(OptimizeVersus, MaxAvgEq(OptimizeVersus),label="y=%.2fx+%.2f)"%(MaxAvgFit[0],MaxAvgFit[1]))
+    #ax.legend(title="Linear")
+    OutputFit = np.polyfit(OptimizeVersus[10:20], OptimumUTXO[10:20], 1)
     OutputEq = np.poly1d(OutputFit)
-    ay.plot(OptimizeVersus, OutputEq(OptimizeVersus),label="y=%.1fx+%.1f"%(OutputFit[0],OutputFit[1]))
+    ay.plot(OptimizeVersus[10:20], OutputEq(OptimizeVersus[10:20]),label="y=%.1fx+%.1f"%(OutputFit[0],OutputFit[1]))
     #plt.xscale(ScaleOfX)
     ay.legend(title="Linear")
-    ax.grid(which="both")
+    #ax.grid(which="both")
     ay.grid(which="both")
     plt.show()
 else:
+    #ax.plot(OptimumUTXO, MaximumAverage, c="#458B00")
+    ax.plot(MaxUTXO, MaximumAverage, c="#000")
     ax.set_xlabel("UTXO Size")
     ax.set_ylabel("Mints / Coin / Yr" if calcMints else "% Reward / Yr")
     plt.xscale(ScaleOfX)
-    plt.legend(title="Coinage Reward (%)")
+    plt.legend(title="Difficulty")
     plt.grid(which="both")
     plt.show()
+
