@@ -21,7 +21,7 @@ PoSDifficulty = [20]
 MaxSimDays = [dayyear*4]
 # Use of compounding interest formula
 #geometric=[True,False]
-geometric=[True]
+geometric=[False]
 # Number of days a UTXO must wait before its maturation period begins
 #NoMintDays = [0,15,30,45,60]
 NoMintDays = [30]
@@ -45,7 +45,7 @@ MaxCoinageDays = [dayyear]
 
 ## Resolution Parameters
 # Repititions that are not reported, only the average is advanced
-NumSim=[2500]
+NumSim=[10000]
 # Repititions that are reported up to the top level
 Trials=[10]
 # Total number of averaged simulations = NumSim*Trials
@@ -57,6 +57,7 @@ Trials=[10]
 UTXO=[2**(x/4)*10 for x in range(40)]
 #UTXO=[2**(x/2)*10 for x in range(20)]
 #UTXO=[25*x+1 for x in range(40)]
+#UTXO=[10]
 
 ## Method Parameters
 # Show mint probabilities instead of rewards (not an array)
@@ -68,7 +69,8 @@ OptimizeVersus=PoSDifficulty
 # SmallDailyProb is a number from 0 (precise) to 1 (estimate).
 # If Daily Prob is very small, approximate the ramp up.
 # What does x<<1 mean to you?  x=0.01?
-SmallDailyProb = 0.001
+SmallDailyProb = 0
+Fit=False
 
 ## Plot Parameters
 # linear/log (not an array)
@@ -86,42 +88,6 @@ rng = np.random.default_rng()
 
 ### Model
 
-#Generate a random number of days to mint given chosen parameters
-def RandomDaysToMint(probsecs, diff, NMD, RUD, Outp):
-
-    # Adjust probability by UTXO and difficulty
-    adj = Outp / diff
-
-    #Initialize.  NMD+1 is the first day you could possibly mint
-    DaysToMint=NMD+1
-    probday=1
-    estprobday = probsecs[RUD-1]*adj*secday
-    #print("Out:{},estprobday:{}".format(Outp,estprobday))
-    if estprobday>SmallDailyProb:
-
-        # Maturation period
-        for x in range(RUD):
-
-            # Random number
-            rnd = rng.random()
-            # Calculate required probability to mint
-            probday = 1 - (1 - probsecs[x]*adj)**secday
-            # Did you find a block?
-            if rnd<probday:
-                return DaysToMint
-            # Apparently not
-            DaysToMint+=1
-    else:
-        DaysToMint += RUD
-        probday=estprobday
-
-    #print(probday)
-    #print(DaysToMint)
-    # Will return either the length of maturation,
-    # or the full maturation plus the randomly generated number of days to mint
-    return DaysToMint+rng.geometric(probday)
-
-
 #[{diff~PoSDifficulty},{MSD~MaxSimDays},{geo~geometric},{NMD~NoMintDays},{RUD~RampUpDays},
 #,{Crew~CoinageReward},{Srew~StaticReward},{MCD~MaxCoinageDays},
 #,{NS~NumSim},{Trl~Trials},{Outp~UTXO}]
@@ -133,12 +99,31 @@ def MinterSimulation(probsecs, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS, Ou
     totalreward = 1 if geo else 0
     totaldays = 0
     mints = 0
-
-    # Loop over simulations
-    for _ in range(NS):
-
-        # Grab how many days it takes simulation to mint
-        MintDays=RandomDaysToMint(probsecs, diff, NMD, RUD, Outp)
+    #rnd = rng.random()
+    adj = Outp / diff
+    probday=1
+    RampSim=NS
+    DaysToMint=NMD+1
+    for x in range(RUD):
+        probday = 1 - (1 - probsecs[x]*adj)**secday
+        SimsMinted = RampSim * probday
+        rnd = np.random.normal()
+        SimsMinted = int(max(0,min(RampSim,np.floor(SimsMinted + rnd * (SimsMinted)**1/2))))
+        DaysToMint += 1
+        MintDays=DaysToMint
+        
+        for j in range(SimsMinted):
+            if MintDays < MSD:
+                mints += 1
+                reward=CRew*Outp*min(MCD, MintDays)/dayyear + SRew
+                if geo:
+                    totalreward *= 1+(reward/Outp)
+                else:
+                    totalreward+=reward
+            totaldays += min(MintDays, MSD)
+        RampSim = RampSim - SimsMinted
+    for j in range(RampSim):
+        MintDays = DaysToMint + rng.geometric(probday)
         # If they mint before they stop minting
         if MintDays < MSD:
             mints += 1
@@ -149,11 +134,9 @@ def MinterSimulation(probsecs, diff, MSD, geo, NMD, RUD, CRew, SRew, MCD, NS, Ou
                 totalreward *= 1+(reward/Outp)
             else:
                 totalreward+=reward
-
         # Add to total days the amount of time waited on this mint up to the
         # maximum wait time
         totaldays += min(MintDays, MSD)
-    
     # If showing probabilites, return total number of mints per output per year
     if calcMints:
         return mints/totaldays/Outp*dayyear
@@ -226,12 +209,14 @@ for diff in PoSDifficulty:
                                         #OptimumUTXO.append(GaussPeaks[0])
                                         # Plot individual trials and fits
                                         if Optimize == False:
+                                            ax.plot(UTXO, AverageTrial)
+                                        if Fit == True:
                                             #ax.plot(UTXO, AverageTrial, label ="SRew={}".format(round(SRew,2)))
                                             ax.plot(UTXO, AverageTrial)
                                             #ax.scatter([GaussPeaks[0]], [MaxAvg],c="#458B00", label="Gauss")
                                             ax.scatter([MaxOutp], [MaxAvg],c="#000",label="Max")
                                             Balancedparams, Balancedcurve = curve_fit(BalancedExp, UTXO, AverageTrial,InitGuess)
-                                            exppolyparams, exppolycurve = curve_fit(poly, np.log(UTXO), AverageTrial,InitGuess)
+                                            exppolyparams, exppolycurve = curve_fit(poly, np.log(UTXO), AverageTrial,PolyGuess)
                                             print("Balancedparams")
                                             print(Balancedparams)
                                             print("exppolyparams")
