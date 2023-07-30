@@ -126,11 +126,14 @@ for row in RealData[1:]:
     DataArray.append(utxo*averageMints(utxo, DIFF)/optMints)
     UTXOArray.append(utxo)
 avgCoinMint=sum(DataArray)/len(DataArray)
+MintingCoins=BLOCKYEAR/(averageMints(avgCoinMint, DIFF))
+
 fig, dataAx = plt.subplots(figsize=(10, 6))
-dataAx.scatter(UTXOArray, DataArray, c="#000")
+dataAx.scatter(UTXOArray, DataArray,alpha=0.03, c="#000")
 plt.xscale("log")
-plt.text(5, 400, avgCoinMint, fontsize = 22)
+plt.yscale("log")
+plt.text(300, 20, "avgCoinMint=%.3f ppc"%(avgCoinMint), fontsize = 22)
+plt.text(300, 10, "MintingCoins=%.0f ppc"%(MintingCoins), fontsize = 22)
 dataAx.set_ylabel("UTXO size/mint")
 dataAx.set_xlabel("UTXO Size")
 plt.show()
-
