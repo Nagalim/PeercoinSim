@@ -7,7 +7,7 @@ MAX_DAYS = 365*2
 MIN_PROB_DAYS= 30
 RAMP_UP = 60
 RELATIVE_REWARD = 0.03
-DIFF = 20
+DIFF = 17
 STATIC_REWARD = 1.34
 EXAMPLE_SIZE = 80
 MAX_COINAGE = 365
@@ -116,17 +116,27 @@ blockLoss = (1 - mintsForSizes[rewardForSizes.argmax()] / mintsForSizes.max())*1
 with open('90day.csv', newline='') as csvfile:
     RealData = list(csv.reader(csvfile))
 
-optMints=mintsForSizes.max()
+#optMints=mintsForSizes.max()
 print(len(RealData))
 IntegerArray=list(range(1,len(RealData)))
 DataArray=[]
 UTXOArray=[]
+avgdiff=0
+n=0
+i=0
 for row in RealData[1:]:
     utxo=float(row[1].strip(' "'))
-    DataArray.append(utxo*averageMints(utxo, DIFF)/optMints)
+    thisdiff=float(row[2].strip(' "'))
+    optMints=averageMints(0.01, thisdiff)
+    DataArray.append(utxo*averageMints(utxo, thisdiff)/optMints)
     UTXOArray.append(utxo)
+    avgdiff+=thisdiff*i
+    n+=i
+    i+=1
+avgdiff=avgdiff/n
+print(avgdiff)
 avgCoinMint=sum(DataArray)/len(DataArray)
-MintingCoins=BLOCKYEAR/(averageMints(avgCoinMint, DIFF))
+MintingCoins=BLOCKYEAR/(averageMints(avgCoinMint, avgdiff))
 
 fig, dataAx = plt.subplots(figsize=(10, 6))
 dataAx.scatter(UTXOArray, DataArray,alpha=0.03, c="#000")
